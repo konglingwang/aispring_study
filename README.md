@@ -56,6 +56,7 @@ spring.ai.deepseek.chat.temperature=0.7
 7. **jsdelivr CDN 在本地网络不可达导致 Markdown 渲染失效/发消息无反应** — 实测 `cdn.jsdelivr.net` 连接失败(000),v5 页面因 `marked` 未加载抛 `ReferenceError`。修复:库文件本地托管 `static/vendor/`(marked.min.js / highlight.min.js / github.css),加载失败时回落 cdnjs,再失败时降级纯文本 —— 三层保底。**教训:全本地化方案(本地模型)的前端不该依赖外部 CDN**。
 8. **`@RestControllerAdvice` 兜底 `Exception.class` 会吞掉静态资源 404** — 不存在的静态文件由 Spring 抛 `NoResourceFoundException`(本应 404),被 catch-all 捕获后变成 500。后果之一:前端 `<link onerror>` 回落逻辑失效、缺失的 CSS 不会触发 CDN 兜底。修复:显式 `@ExceptionHandler(NoResourceFoundException.class)` 返回 404,**catch-all 只留给真正的意外异常**。这个坑拖了代码高亮的后腿(高亮 span 生成了但 CSS 没加载,显示为灰底黑字)。
 9. **手写 SSE 解析器丢换行符 → Markdown 渲染崩坏(灰底白字)** — SSE 规范中,载荷内的换行编码为多条 `data:` 行(空 `data:` 行即换行本身),帧以 `\n\n` 结尾。天真写法"按 `\n` 拆行、跳过空行"会把模型输出里的**所有换行丢掉**,拼成无结构的一整行,marked 认不出代码围栏(围栏必须在行首),整个渲染崩坏。纯文字回复不露馅,代码块必现。正确做法:**缓冲 + 按帧(`\n\n`)切分,帧内多条 `data:` 行用 `\n` 重新连接**还原创文,末尾不足一帧的残片单独 flush。这个坑也是 `docs/Reactor-Flux-Mono-SSE-背压概念.md` 里"SSE 三条规则"第 2 条的实战注脚。
+10. **流式接口的异常不能走 `@RestControllerAdvice` 的 JSON 错误体** — SSE 响应的 Content-Type 已定为 `text/event-stream`,异常进入 advice 后试图用 JSON converter 写 Map 错误体 → `No converter ... with preset Content-Type 'text/event-stream'` → `HttpMessageNotWritableException`,再被 catch-all 捕获形成二次异常循环。修法两处:①流接口用 `.onErrorResume(ex -> Flux.just("[ERROR] ..."))` 把错误作为 SSE 事件写进流;②advice 里显式处理 `AsyncRequestNotUsableException`(客户端中途断开)并静默吞掉 —— 浏览器都没了,写什么都失败。**原则:错误处理必须与响应类型匹配,流式响应的报错也是流的一部分**。
 
 ## 后端接口
 

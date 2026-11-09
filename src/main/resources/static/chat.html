@@ -1,0 +1,358 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, interactive-widget=resizes-content">
+    <meta name="version" content="v8">
+    <title>DeepSeek Chat</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: "Segoe UI", "Microsoft YaHei", sans-serif;
+            background: #f5f6fa;
+            /* Mobile: 100vh is the LARGEST viewport (address bar hidden), which
+               pushes the input bar off-screen. dvh/svh track the visible viewport. */
+            height: 100vh;
+            height: 100dvh; /* overrides 100vh where supported (modern mobile browsers) */
+            display: flex;
+            flex-direction: column;
+        }
+        header {
+            background: #4f6ef7;
+            color: #fff;
+            padding: 14px 24px;
+            font-size: 18px;
+            font-weight: 600;
+        }
+        #chat {
+            flex: 1;
+            overflow-y: auto;
+            padding: 24px;
+        }
+        .msg {
+            max-width: 75%;
+            padding: 10px 14px;
+            border-radius: 12px;
+            margin-bottom: 12px;
+            white-space: pre-wrap;
+            word-break: break-word;
+            line-height: 1.6;
+        }
+        .user {
+            background: #4f6ef7;
+            color: #fff;
+            margin-left: auto;
+        }
+        .bot {
+            background: #fff;
+            border: 1px solid #e0e0e0;
+        }
+        .bot.pending { color: #999; font-style: italic; }
+        .bot.error { background: #fdecea; color: #c0392b; }
+        /* rendered markdown inside bot bubbles */
+        .bot p { margin: 0 0 6px 0; }
+        .bot p:last-child { margin-bottom: 0; }
+        .bot pre {
+            background: #f6f8fa;
+            border: 1px solid #e0e0e0;
+            border-radius: 8px;
+            padding: 10px 12px;
+            overflow-x: auto;
+            margin: 6px 0;
+            font-size: 13px;
+        }
+        .bot code {
+            font-family: Consolas, "Courier New", monospace;
+            background: #f0f1f3;
+            border-radius: 4px;
+            padding: 1px 5px;
+            font-size: 13px;
+        }
+        .bot pre code { background: none; padding: 0; }
+        #inputBar {
+            display: flex;
+            gap: 10px;
+            padding: 16px 24px;
+            background: #fff;
+            border-top: 1px solid #e0e0e0;
+        }
+        #userInput {
+            flex: 1;
+            padding: 12px 16px;
+            border: 1px solid #ccc;
+            border-radius: 8px;
+            font-size: 15px;
+            outline: none;
+        }
+        #userInput:focus { border-color: #4f6ef7; }
+        #sendBtn {
+            padding: 12px 28px;
+            background: #4f6ef7;
+            color: #fff;
+            border: none;
+            border-radius: 8px;
+            font-size: 15px;
+            cursor: pointer;
+        }
+        #sendBtn:disabled { background: #a5b4fc; cursor: not-allowed; }
+        #sendBtn.stop { background: #e5484d; }
+        #modelSelect {
+            padding: 12px 10px;
+            border: 1px solid #ccc;
+            border-radius: 8px;
+            font-size: 14px;
+            outline: none;
+            background: #fff;
+            color: #333;
+        }
+
+        /* Cache-busting for mobile browsers that aggressively cache this page.
+           Same URL + old cache = old layout. Touch the tag to force reload. */
+
+        /* Mobile adaptation */
+        @media (max-width: 600px) {
+            header {
+                padding: 10px 12px;
+                font-size: 15px;
+                white-space: nowrap;
+                overflow: hidden;
+                text-overflow: ellipsis;
+            }
+            #chat {
+                padding: 12px;
+                /* input bar is position:fixed and overlays this area */
+                padding-bottom: 130px;
+            }
+            .msg { max-width: 88%; }
+            /* Pin the whole input bar to the visible bottom of the screen.
+               position:fixed is immune to mobile 100vh/dvh viewport quirks. */
+            #inputBar {
+                position: fixed;
+                left: 0;
+                right: 0;
+                bottom: 0;
+                flex-direction: column;
+                gap: 8px;
+                padding: 10px 12px calc(10px + env(safe-area-inset-bottom));
+                box-shadow: 0 -2px 8px rgba(0, 0, 0, 0.08);
+            }
+            /* uniform control heights + native look stripped from select */
+            #modelSelect, #userInput, #sendBtn {
+                height: 44px; /* comfortable touch target */
+            }
+            #modelSelect {
+                width: 100%;
+                -webkit-appearance: none; /* iOS/Android: kill native chrome so our border/radius render */
+                appearance: none;
+                border-radius: 8px;
+                padding: 0 12px;
+                background-image: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%23666'/%3E%3C/svg%3E");
+                background-repeat: no-repeat;
+                background-position: right 12px center;
+                padding-right: 30px; /* room for the arrow */
+            }
+            #inputRow {
+                display: flex;
+                gap: 8px;
+            }
+            #userInput {
+                flex: 1;
+                min-width: 0; /* allow shrinking inside flex row */
+                font-size: 16px; /* iOS: <16px triggers auto page zoom on focus */
+                padding: 0 12px;
+            }
+            #sendBtn { padding: 0 18px; white-space: nowrap; }
+        }
+    </style>
+</head>
+<body>
+    <header><span id="versionTag" onclick="location.replace(location.pathname + '?v=' + Date.now())" style="cursor:pointer;float:right;font-size:12px;font-weight:400;opacity:.75">v8 · 点我强刷</span>DeepSeek Chat (本地 deepseek-coder:6.7b)程序员专用</header>
+    <!-- Markdown rendering + code highlighting for bot replies.
+         Loaded from local /vendor (works offline, same-origin); falls back to
+         cdnjs if the local file is missing; the app degrades to plain text
+         if both fail (see hasMarkdown check in the script below). -->
+    <script src="/vendor/marked.min.js"
+        onerror="this.onerror=null;this.src='https://cdnjs.cloudflare.com/ajax/libs/marked/12.0.2/marked.min.js'"></script>
+    <script src="/vendor/highlight.min.js"
+        onerror="this.onerror=null;this.src='https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js'"></script>
+    <link rel="stylesheet" href="/vendor/github.css"
+        onerror="this.onerror=null;this.href='https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github.min.css'">
+
+    <div id="chat"></div>
+    <div id="inputBar">
+        <select id="modelSelect">
+            <option value="deepseek-coder:6.7b" selected>deepseek-coder</option>
+            <option value="qwen2.5:7b">qwen2.5</option>
+        </select>
+        <div id="inputRow">
+            <input id="userInput" type="text" placeholder="输入消息，回车或点击发送..." autocomplete="off">
+            <button id="sendBtn" onclick="onSendBtn()">发送</button>
+        </div>
+    </div>
+
+    <script>
+        const chat = document.getElementById('chat');
+        const input = document.getElementById('userInput');
+        const sendBtn = document.getElementById('sendBtn');
+        const modelSelect = document.getElementById('modelSelect');
+
+        // conversation id generator with fallback: crypto.randomUUID() is only
+        // available in secure contexts (https or localhost). When the page is
+        // served over plain HTTP (e.g. via frp public URL), fall back to a
+        // random UUID built from Math.random().
+        function uuid() {
+            if (typeof crypto !== 'undefined' && crypto.randomUUID) {
+                return crypto.randomUUID();
+            }
+            return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {
+                const r = Math.random() * 16 | 0;
+                return (c === 'x' ? r : (r & 0x3 | 0x8)).toString(16);
+            });
+        }
+
+        // New conversation id per page load (refreshing the page starts a new
+        // conversation; the "新对话" button was removed per request)
+        let conversationId = uuid();
+
+        // Markdown/highlight loaded from CDN may fail (e.g. offline or blocked
+        // network). Degrade gracefully: without them the chat still works, bot
+        // replies just show as plain text.
+        const hasMarkdown = typeof marked !== 'undefined';
+        const hasHighlight = typeof hljs !== 'undefined';
+
+        function appendMsg(text, cls) {
+            const div = document.createElement('div');
+            div.className = 'msg ' + cls;
+            if (hasMarkdown && cls.includes('bot') && !cls.includes('pending') && !cls.includes('error')) {
+                // bot replies are rendered as markdown; user text stays plain
+                div.innerHTML = marked.parse(text || '');
+            } else {
+                div.textContent = text;
+            }
+            chat.appendChild(div);
+            chat.scrollTop = chat.scrollHeight;
+            return div;
+        }
+
+        // render markdown in a bot bubble (streaming: re-parse on every chunk)
+        function renderBot(bubble, rawText) {
+            if (hasMarkdown) {
+                bubble.innerHTML = marked.parse(rawText);
+                if (hasHighlight) {
+                    // highlight code blocks; guard against re-highlighting the
+                    // same element (marked.parse rebuilds innerHTML each time,
+                    // so track the last highlighted raw text length instead)
+                    bubble.querySelectorAll('pre code').forEach(block => {
+                        if (!block.dataset.hl) {
+                            block.dataset.hl = '1';
+                            try { hljs.highlightElement(block); } catch (e) { /* ignore */ }
+                        }
+                    });
+                }
+            } else {
+                bubble.textContent = rawText;
+            }
+            chat.scrollTop = chat.scrollHeight;
+        }
+
+        let activeController = null; // for aborting the in-flight request
+
+        // send button doubles as a stop button while a request is streaming
+        function onSendBtn() {
+            if (activeController) {
+                activeController.abort();
+            } else {
+                send();
+            }
+        }
+
+        async function send() {
+            const text = input.value.trim();
+            if (!text) return;
+
+            appendMsg(text, 'user');
+            input.value = '';
+            sendBtn.disabled = false;
+            sendBtn.classList.add('stop');
+            sendBtn.textContent = '停止';
+
+            const bubble = appendMsg('', 'bot');
+            bubble.textContent = '思考中...';
+            bubble.classList.add('pending');
+            let received = false;
+            activeController = new AbortController();
+            try {
+                // Streaming: read SSE chunks from /ai/stream as they arrive
+                const resp = await fetch('/ai/stream?userInput=' + encodeURIComponent(text)
+                    + '&conversationId=' + conversationId
+                    + '&model=' + modelSelect.value,
+                    { signal: activeController.signal });
+                if (!resp.ok) {
+                    const err = await resp.json().catch(() => null);
+                    throw new Error(err && err.error ? err.error : 'HTTP ' + resp.status);
+                }
+                const reader = resp.body.getReader();
+                const decoder = new TextDecoder();
+                let raw = '';
+                let sseBuf = '';
+                // SSE spec: a frame ends with a blank line (\n\n); a frame's payload
+                // is its "data:" lines joined with \n — newlines inside model output
+                // are encoded as extra data: lines, so they MUST be restored here
+                // (naively skipping empty lines drops every newline and destroys
+                // markdown structure).
+                const handleFrame = frame => {
+                    const dataLines = frame.split('\n').filter(l => l.startsWith('data:'));
+                    if (dataLines.length === 0) return;
+                    const payload = dataLines.map(l => l.slice(5)).join('\n');
+                    if (payload === '[DONE]') return;
+                    if (!received) {
+                        received = true;
+                        bubble.classList.remove('pending');
+                    }
+                    raw += payload;
+                    renderBot(bubble, raw);
+                };
+                while (true) {
+                    const { done, value } = await reader.read();
+                    if (done) break;
+                    sseBuf += decoder.decode(value, { stream: true });
+                    let idx;
+                    while ((idx = sseBuf.indexOf('\n\n')) !== -1) {
+                        handleFrame(sseBuf.slice(0, idx));
+                        sseBuf = sseBuf.slice(idx + 2);
+                    }
+                }
+                // flush a trailing frame that lacked the final blank line
+                if (sseBuf.trim().length > 0) handleFrame(sseBuf);
+                if (!received) {
+                    bubble.textContent = '(空回复)';
+                }
+            } catch (err) {
+                if (err.name === 'AbortError') {
+                    bubble.className = 'msg bot pending';
+                    bubble.textContent = '(已取消)';
+                } else {
+                    bubble.className = 'msg bot error';
+                    bubble.textContent = '请求失败: ' + err.message;
+                }
+            } finally {
+                activeController = null;
+                sendBtn.classList.remove('stop');
+                sendBtn.textContent = '发送';
+                input.focus();
+            }
+        }
+
+        input.addEventListener('keydown', e => {
+            if (e.key === 'Enter') send();
+        });
+        // keyboard opening resizes the dvh viewport; re-stick messages to bottom
+        input.addEventListener('focus', () => setTimeout(scrollToBottom, 300));
+        window.addEventListener('resize', scrollToBottom);
+        function scrollToBottom() {
+            chat.scrollTop = chat.scrollHeight;
+        }
+        input.focus();
+    </script>
+</body>
+</html>
