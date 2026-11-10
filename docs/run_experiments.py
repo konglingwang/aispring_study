@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """Runs the prompt experiments from prompt-experiments.md against the local app.
-Each request gets a fresh conversationId (no memory pollution)."""
+Each request gets a fresh conversationId (no memory pollution).
+Run: 2026-11-10 (30 requests; results -> experiment_results.json)."""
 import json, time, urllib.request, urllib.parse, uuid, sys, io
 
 sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')

@@ -3,6 +3,7 @@
 基于 Spring Boot 4.1.2 + Spring AI 2.0.1 的 AI 对话 Demo:后端通过 DeepSeek starter 调用本地 Ollama 运行的 `deepseek-coder:6.7b` 模型,提供带会话历史的 HTTP 接口;前端为内置聊天页面;另附 frp 内网穿透配置,可将服务暴露到公网。
 
 > 本工程同时是"大模型应用开发学习计划"的载体,每周学习产出的功能直接落在本工程上,详见 [LEARNING_PLAN.md](LEARNING_PLAN.md)。
+> **最后更新**:2026-11-10(前端 v8:本地托管 Markdown 渲染/规范 SSE 帧解析;Prompt 对照实验完成)
 
 ## 技术栈
 

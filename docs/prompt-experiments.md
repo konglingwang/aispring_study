@@ -2,6 +2,7 @@
 
 > LEARNING_PLAN.md 第 2 周 Prompt 工程练习的实验记录。 实验环境:本工程 chat
 > 页面(v8+),双模型下拉切换,temperature 0.7 固定。
+> **模板创建**:2026-11-09 | **实验数据**:2026-11-10(30 组跑批,脚本 run_experiments.py,原始结果 experiment_results.json)
 
 ## 实验纪律(每次实验前重读)
 
